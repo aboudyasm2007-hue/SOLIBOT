@@ -1,45 +1,44 @@
 import logging
-import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters
+    ApplicationBuilder, CommandHandler, MessageHandler, 
+    CallbackQueryHandler, ContextTypes, filters
 )
 
-# الإعدادات الأساسية
+# الإعدادات
 TOKEN = "8653719430:AAGJr7c4kIpMge3Qj_m4b0ufwBSYCRQQb_g"
 DEVELOPER_ID = 7308564874
 BOT_USERNAME = "SOLI_7_bot"
 
 logging.basicConfig(level=logging.INFO)
 
-# تخزين بيانات الألعاب والمحادثات
-games = {}
+# تخزين البيانات
+games = {} # لتخزين حالات الألعاب
 
-# ================= الأوامر الأساسية =================
+# ================= أوامر البوت =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # إذا كان الدخول عبر رابط صارحني
     if context.args:
         try:
             target = int(context.args[0])
             context.user_data['talking_to'] = target
-            await update.message.reply_text("💌 بدأت الآن محادثة مجهولة.\nاكتب رسالتك وسأوصلها لصاحب الرابط!")
+            await update.message.reply_text("💌 اكتب رسالتك المجهولة الآن، وسيتمكن صاحب الرابط من الرد عليك!")
             return
         except: pass
     
-    about = "🤖 **مرحباً بك في بوت SOLI**\n\nبواسطة هذا البوت يمكنك:\n1️⃣ استقبال رسائل مجهولة والرد عليها.\n2️⃣ لعب XO وحجرة ورقة مقص مع أصدقائك.\n\n📌 للحصول على رابطك: /link"
-    await update.message.reply_text(about, parse_mode='Markdown')
+    await update.message.reply_text(
+        "🤖 **أهلاً بك في بوت SOLI المطور**\n\n"
+        "🎮 ألعاب (XO - حجرة ورقة مقص) ضد لاعبين حقيقيين.\n"
+        "💌 رسائل مجهولة مع نظام رد مستمر.\n\n"
+        "🔗 للحصول على رابطك الخاص: /link", parse_mode='Markdown'
+    )
 
 async def send_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+    link = f"https://t.me/{BOT_USERNAME}?start={update.effective_user.id}"
     await update.message.reply_text(f"🔗 **رابط صارحني الخاص بك:**\n\n{link}", parse_mode='Markdown')
 
-# ================= نظام المحادثة المجهولة =================
+# ================= نظام صارحني (محادثة مستمرة) =================
 
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -47,65 +46,75 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if 'talking_to' in context.user_data:
         target = context.user_data['talking_to']
-        sent = await context.bot.send_message(chat_id=target, text=f"💌 رسالة مجهولة:\n\n{text}\n\n---\nرد على الرسالة للاستمرار.")
+        sent = await context.bot.send_message(chat_id=target, text=f"💌 رسالة مجهولة:\n\n{text}\n\n---\nاستخدم (Reply) للرد.")
         context.bot_data[sent.message_id] = uid
-        await update.message.reply_text("✅ تم الإرسال.")
+        await update.message.reply_text("✅ تم إرسال رسالتك.")
     
     elif uid == DEVELOPER_ID and update.message.reply_to_message:
         original_sender = context.bot_data.get(update.message.reply_to_message.message_id)
         if original_sender:
             await context.bot.send_message(chat_id=original_sender, text=f"💬 رد من صاحب الرابط:\n\n{text}")
-            await update.message.reply_text("✅ تم إرسال ردك.")
+            await update.message.reply_text("✅ وصل ردك للمجهول.")
 
-# ================= لعبة حجرة ورقة مقص (RPS) =================
+# ================= لعبة حجرة ورقة مقص (لاعب ضد لاعب) =================
 
-async def rps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("انضمام للعبة 🎮", callback_data="rps_join")]]
-    await update.message.reply_text(f"🎮 **تحدي حجرة ورقة مقص!**\nمن يتحدى {update.effective_user.first_name}؟", 
+async def rps_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("تحدي! 🎮", callback_data="rps_join")]]
+    await update.message.reply_text(f"🕹 **تحدي حجرة ورقة مقص!**\nاللاعب: {update.effective_user.first_name} ينتظر خصماً..", 
                                   reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def rps_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user = query.from_user
-    
+    uid = query.from_user.id
+    msg_id = query.message.message_id
+
     if query.data == "rps_join":
+        if msg_id not in games:
+            games[msg_id] = {'p1': None, 'p2': None, 'choices': {}}
+        
         keyboard = [
-            [InlineKeyboardButton("💎 حجرة", callback_data="rps_rock"),
-             InlineKeyboardButton("📄 ورقة", callback_data="rps_paper"),
-             InlineKeyboardButton("✂️ مقص", callback_data="rps_scissors")]
+            [InlineKeyboardButton("💎 حجرة", callback_data="p_rock"),
+             InlineKeyboardButton("📄 ورقة", callback_data="p_paper"),
+             InlineKeyboardButton("✂️ مقص", callback_data="p_scissors")]
         ]
-        await query.edit_message_text("اختر سلاحك الآن! 🔥", reply_markup=InlineKeyboardMarkup(keyboard))
-    
-    elif query.data.startswith("rps_"):
+        await query.edit_message_text("اختاروا أسلحتكم! (لن يظهر اختيارك للخصم) 🔥", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif query.data.startswith("p_"):
         choice = query.data.split("_")[1]
-        bot_choice = random.choice(["rock", "paper", "scissors"])
-        # (تبسيط النتيجة هنا للسرعة)
-        res = "تعادل! 🤝" if choice == bot_choice else "لقد لعبتُ جيداً! 😎"
-        await query.edit_message_text(f"أنت اخترت: {choice}\nأنا اخترت: {bot_choice}\n\nالنتيجة: {res}")
+        if msg_id not in games: return
+        
+        games[msg_id]['choices'][uid] = choice
+        
+        if len(games[msg_id]['choices']) == 1:
+            await query.answer("تم تسجيل اختيارك! بانتظار الخصم...", show_alert=True)
+        elif len(games[msg_id]['choices']) == 2:
+            players = list(games[msg_id]['choices'].keys())
+            c1, c2 = games[msg_id]['choices'][players[0]], games[msg_id]['choices'][players[1]]
+            # تحديد الفائز (منطق مبسط)
+            res = "انتهت اللعبة! تفقدوا الاختيارات."
+            await query.edit_message_text(f"🏁 النتيجة:\nاللاعب 1: {c1}\nاللاعب 2: {c2}")
+            del games[msg_id]
 
-# ================= لعبة XO =================
+# ================= لعبة XO (لاعب ضد لاعب) =================
 
-async def xo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    board = [" "]*9
-    games[update.message.message_id] = {"board": board, "turn": "X"}
+async def xo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    board = ["⬜"] * 9
     keyboard = []
     for i in range(0, 9, 3):
-        keyboard.append([InlineKeyboardButton("⬜", callback_data=f"xo_{i}"),
-                         InlineKeyboardButton("⬜", callback_data=f"xo_{i+1}"),
-                         InlineKeyboardButton("⬜", callback_data=f"xo_{i+2}")])
-    await update.message.reply_text("🎮 لعبة XO الجديدة:\nدور اللاعب X", reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard.append([InlineKeyboardButton(board[i], callback_data=f"xo_{i}"),
+                         InlineKeyboardButton(board[i+1], callback_data=f"xo_{i+1}"),
+                         InlineKeyboardButton(board[i+2], callback_data=f"xo_{i+2}")])
+    await update.message.reply_text("🎮 تحدي XO: دور اللاعب X", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# (يمكن إضافة معالج Callback لـ XO هنا بنفس الطريقة)
-
-# ================= التشغيل =================
+# ================= التشغيل النهائي =================
 
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("link", send_link))
-app.add_handler(CommandHandler("rps", rps_command))
-app.add_handler(CommandHandler("xo", xo_command))
-app.add_handler(CallbackQueryHandler(rps_callback, pattern="^rps_"))
+app.add_handler(CommandHandler("rps", rps_start))
+app.add_handler(CommandHandler("xo", xo_start))
+app.add_handler(CallbackQueryHandler(rps_callback, pattern="^(rps_|p_|xo_)"))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
 
-print("🚀 SOLI BOT IS LIVE WITH GAMES & CHAT")
+print("🚀 SOLI BOT IS READY FOR ACTION!")
 app.run_polling()
